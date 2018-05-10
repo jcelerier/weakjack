@@ -20,32 +20,7 @@
  * along with this program; if not, write to the Free Software Foundation,
  * Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  */
-#ifndef _WEAK_JACK_H
-#define _WEAK_JACK_H
-
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
-/** check if libjack is available
- *
- * return 0 if libjack is dynamically linked of was
- * successfully dl-opened. Otherwise:
- *
- * -1: library was not initialized
- * -2: libjack was not found
- *  > 0 bitwise flags:
- *      1: a required function was not found in libjack
- *      2: jack_client_open was not found in libjack
- */
-int have_libjack(void);
-
-#ifdef __cplusplus
-}
-#endif
-
-#ifdef USE_WEAK_JACK
+#pragma once
 
 /* <jack/jack.h> */
 #define jack_client_close                   WJACK_client_close
@@ -189,8 +164,6 @@ int have_libjack(void);
 #define jack_get_xrun_delayed_usecs WJACK_get_xrun_delayed_usecs
 #define jack_reset_max_delayed_usecs WJACK_reset_max_delayed_usecs
 
-#endif // end USE_WEAK_JACK
-
 #include <jack/jack.h>
 #include <jack/transport.h>
 #include <jack/ringbuffer.h>
@@ -203,28 +176,300 @@ int have_libjack(void);
 #include <jack/metadata.h>
 #endif
 
-#ifdef USE_WEAK_JACK
-
 #undef jack_client_open
 
 /* var-args hack */
-
-#ifdef __cplusplus
-extern "C" {
-#endif
 void (* WJACK_get_client_open (void)) (void);
 jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t options, jack_status_t *status, ...);
-#ifdef __cplusplus
-}
-#endif
 
 #define jack_client_open(...) \
 ( \
-	(WJACK_get_client_open() != NULL) \
-	?  ((jack_client_t* (*)(const char *, jack_options_t, jack_status_t *, ...))(WJACK_get_client_open()))(__VA_ARGS__) \
-	: WJACK_no_client_open(__VA_ARGS__) \
+  (WJACK_get_client_open() != NULL) \
+  ?  ((jack_client_t* (*)(const char *, jack_options_t, jack_status_t *, ...))(WJACK_get_client_open()))(__VA_ARGS__) \
+  : WJACK_no_client_open(__VA_ARGS__) \
 )
 
-#endif // end USE_WEAK_JACK
+#include <cstdio>
+#include <cstring>
+#include <cassert>
+#include <initializer_list>
+#include <iostream>
 
-#endif // _WEAK_JACK_H
+#ifdef _WIN32
+#include <Windows.h>
+#else
+#include <dlfcn.h>
+#endif
+
+#if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
+typedef void * pvoid_t;
+typedef void (* func_t) (void);
+#define MAPSYM(SYM, FAIL) _ ## SYM = (func_t)lib_symbol(_lib, "jack_" # SYM); \
+  if (!_ ## SYM) err |= FAIL;
+#elif defined(NDEBUG)
+typedef void * __attribute__ ((__may_alias__)) pvoid_t;
+#define MAPSYM(SYM, FAIL) *(pvoid_t *)(&_ ## SYM) = WeakJack::lib_symbol(_lib, "jack_" # SYM); \
+  if (!_ ## SYM) err |= FAIL;
+#else
+typedef void * __attribute__ ((__may_alias__)) pvoid_t;
+#define MAPSYM(SYM, FAIL) *(pvoid_t *)(&_ ## SYM) = WeakJack::lib_symbol(_lib, "jack_" # SYM); \
+  if (!_ ## SYM) { \
+    if (FAIL) { \
+      fprintf(stderr, "*** WEAK-JACK: required symbol 'jack_%s' was not found\n", "" # SYM); \
+    } \
+    err |= FAIL; \
+  }
+#endif
+
+/* function pointers to the real jack API */
+struct WeakJack
+{
+  func_t _client_open{}; // special case due to varargs
+  int _status = -1;
+  void* _lib{};
+
+  /** check if libjack is available
+   *
+   * return 0 if libjack is dynamically linked of was
+   * successfully dl-opened. Otherwise:
+   *
+   * -1: library was not initialized
+   * -2: libjack was not found
+   *  > 0 bitwise flags:
+   *      1: a required function was not found in libjack
+   *      2: jack_client_open was not found in libjack
+   */
+  int available() const noexcept
+  {
+    return _status;
+  }
+
+  WeakJack()
+  {
+      int err = 0;
+      debug("*** WEAK-JACK: initializing\n");
+      for(auto path : lib_paths())
+      {
+        if((_lib = lib_open(path)))
+          break;
+      }
+
+      if (!_lib)
+      {
+        debug("*** WEAK-JACK: libjack was not found\n");
+        _status = -2;
+        return;
+      }
+
+      /* found library, now lookup functions */
+
+    MAPSYM(client_open, 2)
+
+    #define JCFUN(ERR, RTYPE, NAME, RVAL)             MAPSYM(NAME, ERR)
+    #define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL)  MAPSYM(NAME, ERR)
+    #define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE)  MAPSYM(NAME, ERR)
+    #define JVFUN(ERR, NAME, DEF, ARGS, CODE)         MAPSYM(NAME, ERR)
+
+    #include "weak_libjack.def"
+
+    #undef JCFUN
+    #undef JPFUN
+    #undef JXFUN
+    #undef JVFUN
+
+#undef MAPSYM
+
+      /* if a required symbol is not found, disable JACK completly */
+      if (err)
+        _client_open = nullptr;
+
+      _status = err;
+      if(err)
+        debug("*** WEAK-JACK: jack is not available");
+      else
+        debug("*** WEAK-JACK: OK.");
+  }
+
+  ~WeakJack()
+  {
+    if(_lib)
+      lib_close(_lib);
+  }
+
+  static void debug(const char* str)
+  {
+#if !defined(NDEBUG)
+    std::cerr << str << std::endl;
+#endif
+  }
+
+  static const WeakJack& instance()
+  {
+    static const WeakJack j{};
+    return j;
+  }
+
+  static std::initializer_list<const char*> lib_paths()
+  {
+    #if defined(__APPLE__)
+      return {"libjack.dylib", "/usr/local/lib/libjack.dylib"};
+
+    #elif defined(_WIN32)
+    # if defined(_WIN64)
+      return {"libjack64.dll"};
+    # else
+      return {"libjack.dll"};
+    # endif
+
+    #else
+      return {"libjack.so.0"};
+    #endif
+  }
+
+  static void* lib_open(const char* const so)
+  {
+  #ifdef _WIN32
+    return (void*) LoadLibraryA(so);
+  #else
+    return dlopen(so, RTLD_NOW|RTLD_LOCAL);
+  #endif
+  }
+
+  static void lib_close(void* const lib)
+  {
+  #ifdef _WIN32
+    FreeLibrary((HMODULE)lib);
+  #else
+    dlclose(lib);
+  #endif
+  }
+
+  static void* lib_symbol(void* const lib, const char* const sym)
+  {
+  #ifdef _WIN32
+    return (void*) GetProcAddress((HMODULE)lib, sym);
+  #else
+    return dlsym(lib, sym);
+  #endif
+  }
+
+#define JCFUN(ERR, RTYPE, NAME, RVAL)              func_t _ ## NAME ;
+#define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL)   func_t _ ## NAME ;
+#define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE)   func_t _ ## NAME ;
+#define JVFUN(ERR, NAME, DEF, ARGS, CODE)          func_t _ ## NAME ;
+
+#include "weak_libjack.def"
+
+#undef JCFUN
+#undef JPFUN
+#undef JXFUN
+#undef JVFUN
+};
+
+
+/*******************************************************************************
+ * helper macros
+ */
+
+#ifndef NDEBUG
+# define WJACK_WARNING(NAME) \
+  fprintf(stderr, "*** WEAK-JACK: function 'jack_%s' ignored\n", "" # NAME);
+#else
+# define WJACK_WARNING(NAME) ;
+#endif
+
+/******************************************************************************
+ * JACK API wrapper functions.
+ *
+ * if a function pointer is set in the static struct WeakJack _j,
+ * the function is called directly.
+ * Otherwise a dummy NOOP implementation is provided.
+ * The latter is mainly for compile-time warnings.
+ *
+ * If libjack is not found, jack_client_open() will fail.
+ * In that case the application should not call any other libjack
+ * functions. Hence a real implementation is not needed.
+ * (jack ringbuffer may be an exception for some apps)
+ */
+
+/* dedicated support for jack_client_open(,..) variable arg function macro */
+func_t WJACK_get_client_open() {
+  return WeakJack::instance()._client_open;
+}
+
+/* callback to set status */
+jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t options, jack_status_t *status, ...) {
+  WJACK_WARNING(client_open);
+  if (status) { *status = JackFailure; }
+  return nullptr;
+}
+
+/*******************************************************************************
+ * Macros to wrap jack API
+ */
+
+/* abstraction for jack_client functions
+ *  rtype jack_function_name (jack_client_t *client) { return rval; }
+ */
+#define JCFUN(ERR, RTYPE, NAME, RVAL) \
+  RTYPE WJACK_ ## NAME (jack_client_t *client) { \
+    auto& j = WeakJack::instance(); \
+    if (j._ ## NAME) { \
+      return ((RTYPE (*)(jack_client_t *client)) j._ ## NAME)(client); \
+    } else { \
+      WJACK_WARNING(NAME) \
+      return RVAL; \
+    } \
+  }
+
+/* abstraction for NOOP functions with return value
+ *  rtype jack_function_name (ARGS) { return rval; }
+ */
+#define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL) \
+  RTYPE WJACK_ ## NAME DEF { \
+    auto& j = WeakJack::instance(); \
+    if (j._ ## NAME) { \
+      return ((RTYPE (*)DEF) j._ ## NAME) ARGS; \
+    } else { \
+      WJACK_WARNING(NAME) \
+      return RVAL; \
+    } \
+  }
+
+/* abstraction for functions that need custom code.
+ * e.g. functions with return-value-pointer args,
+ * use CODE to initialize value
+ *
+ *  rtype jack_function_name (ARGS) { CODE }
+ */
+#define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE) \
+  RTYPE WJACK_ ## NAME DEF { \
+    auto& j = WeakJack::instance(); \
+    if (j._ ## NAME) { \
+      return ((RTYPE (*)DEF) j._ ## NAME) ARGS; \
+    } else { \
+      WJACK_WARNING(NAME) \
+      CODE \
+    } \
+  }
+
+/* abstraction for void functions with return-value-pointer args
+ *  void jack_function_name (ARGS) { CODE }
+ */
+#define JVFUN(ERR, NAME, DEF, ARGS, CODE) \
+  void WJACK_ ## NAME DEF { \
+    auto& j = WeakJack::instance(); \
+    if (j._ ## NAME) { \
+      ((void (*)DEF) j._ ## NAME) ARGS; \
+    } else { \
+      WJACK_WARNING(NAME) \
+      CODE \
+    } \
+  }
+
+#include "weak_libjack.def"
+
+#undef JCFUN
+#undef JPFUN
+#undef JXFUN
+#undef JVFUN

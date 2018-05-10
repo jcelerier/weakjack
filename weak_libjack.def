@@ -9,8 +9,6 @@
  * see https://en.wikibooks.org/wiki/C_Programming/Preprocessor#X-Macros
  */
 
-#ifdef USE_WEAK_JACK
-
 /* <jack/jack.h> */
 JCFUN(1, int,            client_close, 0)
 JCFUN(1, char*,          get_client_name, NULL)
@@ -134,7 +132,7 @@ JPFUN(0, int,            client_kill_thread, (jack_client_t* c, jack_native_thre
 JVFUN(0,                 set_thread_creator, (jack_thread_creator_t c), (c),)
 #endif
 JPFUN(1, int,            client_create_thread, \
-		(jack_client_t* c, jack_native_thread_t *t, int p, int r, void *(*f)(void*), void *a), (c,t,p,r,f,a), 0)
+    (jack_client_t* c, jack_native_thread_t *t, int p, int r, void *(*f)(void*), void *a), (c,t,p,r,f,a), 0)
 
 #ifndef NO_JACK_METADATA
 /* <jack/uuid.h>  - TODO*/
@@ -160,5 +158,3 @@ JPFUN(0, int,            set_property_change_callback, (jack_client_t *c, JackPr
 JCFUN(1, float,          get_max_delayed_usecs, 0.0)
 JCFUN(1, float,          get_xrun_delayed_usecs, 0.0)
 JVFUN(0,                 reset_max_delayed_usecs, (jack_client_t *c), (c),)
-
-#endif // end USE_WEAK_JACK
