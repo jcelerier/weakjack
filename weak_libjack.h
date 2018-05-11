@@ -201,9 +201,9 @@ jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t op
 #include <dlfcn.h>
 #endif
 
+typedef void (* func_t) (void);
 #if defined(_MSC_VER) && !defined(__INTEL_COMPILER)
 typedef void * pvoid_t;
-typedef void (* func_t) (void);
 #define MAPSYM(SYM, FAIL) _ ## SYM = (func_t)lib_symbol(_lib, "jack_" # SYM); \
   if (!_ ## SYM) err |= FAIL;
 #elif defined(NDEBUG)
