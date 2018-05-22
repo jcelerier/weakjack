@@ -393,12 +393,12 @@ struct WeakJack
  */
 
 /* dedicated support for jack_client_open(,..) variable arg function macro */
-func_t WJACK_get_client_open() {
+inline func_t WJACK_get_client_open() {
   return WeakJack::instance()._client_open;
 }
 
 /* callback to set status */
-jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t options, jack_status_t *status, ...) {
+inline jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t options, jack_status_t *status, ...) {
   WJACK_WARNING(client_open);
   if (status) { *status = JackFailure; }
   return nullptr;
@@ -412,7 +412,7 @@ jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t op
  *  rtype jack_function_name (jack_client_t *client) { return rval; }
  */
 #define JCFUN(ERR, RTYPE, NAME, RVAL) \
-  RTYPE WJACK_ ## NAME (jack_client_t *client) { \
+  inline RTYPE WJACK_ ## NAME (jack_client_t *client) { \
     auto& j = WeakJack::instance(); \
     if (j._ ## NAME) { \
       return ((RTYPE (*)(jack_client_t *client)) j._ ## NAME)(client); \
@@ -426,7 +426,7 @@ jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t op
  *  rtype jack_function_name (ARGS) { return rval; }
  */
 #define JPFUN(ERR, RTYPE, NAME, DEF, ARGS, RVAL) \
-  RTYPE WJACK_ ## NAME DEF { \
+  inline RTYPE WJACK_ ## NAME DEF { \
     auto& j = WeakJack::instance(); \
     if (j._ ## NAME) { \
       return ((RTYPE (*)DEF) j._ ## NAME) ARGS; \
@@ -443,7 +443,7 @@ jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t op
  *  rtype jack_function_name (ARGS) { CODE }
  */
 #define JXFUN(ERR, RTYPE, NAME, DEF, ARGS, CODE) \
-  RTYPE WJACK_ ## NAME DEF { \
+  inline RTYPE WJACK_ ## NAME DEF { \
     auto& j = WeakJack::instance(); \
     if (j._ ## NAME) { \
       return ((RTYPE (*)DEF) j._ ## NAME) ARGS; \
@@ -457,7 +457,7 @@ jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t op
  *  void jack_function_name (ARGS) { CODE }
  */
 #define JVFUN(ERR, NAME, DEF, ARGS, CODE) \
-  void WJACK_ ## NAME DEF { \
+  inline void WJACK_ ## NAME DEF { \
     auto& j = WeakJack::instance(); \
     if (j._ ## NAME) { \
       ((void (*)DEF) j._ ## NAME) ARGS; \
