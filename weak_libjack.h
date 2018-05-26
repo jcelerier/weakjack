@@ -142,7 +142,7 @@
 
 #define jack_client_open                    WJACK_client_client_openXXX
 
-#ifndef NO_JACK_METADATA
+#if __has_include(<jack/metadata.h>)
 /* <jack/metadata.h> */
 #define jack_get_uuid_for_client_name       WJACK_get_uuid_for_client_name
 #define jack_get_client_name_by_uuid        WJACK_get_client_name_by_uuid
@@ -172,7 +172,7 @@
 #include <jack/thread.h>
 #include <jack/statistics.h>
 
-#ifndef NO_JACK_METADATA
+#if __has_include(<jack/metadata.h>)
 #include <jack/metadata.h>
 #endif
 
