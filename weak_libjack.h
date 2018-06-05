@@ -192,8 +192,8 @@ jack_client_t * WJACK_no_client_open (const char *client_name, jack_options_t op
 #include <cstdio>
 #include <cstring>
 #include <cassert>
-#include <initializer_list>
 #include <iostream>
+#include <array>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -242,6 +242,27 @@ struct WeakJack
   int available() const noexcept
   {
     return _status;
+  }
+
+  static constexpr auto lib_paths()
+  {
+      const constexpr
+    #if defined(__APPLE__)
+      std::array<const char*, 2> p{"libjack.dylib", "/usr/local/lib/libjack.dylib"}
+
+    #elif defined(_WIN32)
+    # if defined(_WIN64)
+      std::array<const char*, 1> p{"libjack64.dll"}
+    # else
+      std::array<const char*, 1> p{"libjack.dll"}
+    # endif
+
+    #else
+      std::array<const char*, 1> p{"libjack.so.0"}
+    #endif
+    ;
+
+    return p;
   }
 
   WeakJack()
@@ -307,23 +328,6 @@ struct WeakJack
   {
     static const WeakJack j{};
     return j;
-  }
-
-  static std::initializer_list<const char*> lib_paths()
-  {
-    #if defined(__APPLE__)
-      return {"libjack.dylib", "/usr/local/lib/libjack.dylib"};
-
-    #elif defined(_WIN32)
-    # if defined(_WIN64)
-      return {"libjack64.dll"};
-    # else
-      return {"libjack.dll"};
-    # endif
-
-    #else
-      return {"libjack.so.0"};
-    #endif
   }
 
   static void* lib_open(const char* const so)
