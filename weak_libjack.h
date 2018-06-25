@@ -105,6 +105,7 @@
 #define jack_release_timebase               WJACK_release_timebase
 
 /* <jack/midiport.h> */
+#define jack_midi_event_reserve             WJACK_midi_event_reserve
 #define jack_midi_get_event_count           WJACK_midi_get_event_count
 #define jack_midi_event_get                 WJACK_midi_event_get
 #define jack_midi_event_write               WJACK_midi_event_write
